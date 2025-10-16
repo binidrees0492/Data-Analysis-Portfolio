@@ -1,0 +1,109 @@
+/*
+DAX (Data Analysis Expressions) is a formula language used in Power BI, Power Pivot, and SSAS Tabular models.
+It's similar to Excel formulas but designed to work with relational data and perform dynamic aggregations.
+*/
+
+-- 1. YoY Growth Percentage (Advanced Time Intelligence)
+-- Calculates year-over-year growth percentage for sales
+Sales YoY Growth % = 
+-- VAR: Declares variables for storing intermediate results (improves performance and readability)
+VAR CurrentYearSales = 
+    -- CALCULATE: Changes the context in which the data is evaluated
+    -- SAMEPERIODLASTYEAR: Time intelligence function that returns the same period from previous year
+    CALCULATE(
+        SUM(Sales[SalesAmount]), -- Sum of sales amount column
+        SAMEPERIODLASTYEAR('Date'[Date]) -- Filters to same dates in previous year
+    )
+VAR PreviousYearSales = 
+    CALCULATE(
+        SUM(Sales[SalesAmount]),
+        -- DATEADD: Another time intelligence function that shifts dates by specified interval
+        DATEADD('Date'[Date], -1, YEAR) -- Go back one year from each date
+    )
+-- RETURN: Returns the final result after variable calculations
+RETURN
+    -- IF: Conditional logic to handle cases where previous year data might be missing
+    IF(
+        NOT ISBLANK(PreviousYearSales), -- Check if previous year exists
+        -- DIVIDE: Safe division that handles divide-by-zero errors automatically
+        DIVIDE(
+            CurrentYearSales - PreviousYearSales, -- Actual growth amount
+            PreviousYearSales -- Base for percentage calculation
+        ),
+        BLANK() -- Return blank if no previous year data (instead of error)
+    )
+
+-- 2. Running Total with Performance Comparison
+-- Calculates cumulative sales total up to each date
+Running Total Sales = 
+CALCULATE(
+    SUM(Sales[SalesAmount]), -- What we want to calculate (sum of sales)
+    -- FILTER: Creates a filtered table of all selected dates
+    FILTER(
+        ALLSELECTED('Date'), -- ALLSELECTED: Returns all dates in current filter context
+        'Date'[Date] <= MAX('Date'[Date]) -- Include all dates up to current date in context
+    )
+)
+
+-- 3. Dynamic Customer Segmentation
+-- Categorizes customers based on their total spending
+Customer Segment = 
+-- Variables for readable business logic
+VAR TotalSales = [Total Customer Sales] -- Reference to another measure
+RETURN
+    -- SWITCH: Cleaner alternative to nested IF statements
+    SWITCH(
+        TRUE(), -- Evaluate each condition until one matches
+        TotalSales > 10000, "VIP",        -- Top tier customers
+        TotalSales > 5000, "Premium",     -- High value customers
+        TotalSales > 1000, "Standard",    -- Regular customers
+        "New Customer"                    -- Everyone else
+    )
+
+-- 4. Moving Average (30 Days)
+-- Calculates average sales over trailing 30 days for each date
+30 Day Moving Average = 
+-- AVERAGEX: Iterates over a table and calculates average of an expression
+AVERAGEX(
+    -- DATESINPERIOD: Returns a table of dates in specified period
+    DATESINPERIOD(
+        'Date'[Date],                    -- Date column to use
+        LASTDATE('Date'[Date]),          -- Starting point (last date in context)
+        -30,                             -- Go back 30 periods
+        DAY                              -- Period type (days in this case)
+    ),
+    [Total Sales] -- Measure to average across these dates
+)
+
+-- 5. Top N Products with Others Category
+-- Dynamically shows top 5 products and groups the rest as "Other Products"
+Top 5 Products Dynamic = 
+-- TOPN: Returns top N rows based on a measure
+VAR TopProducts = 
+    TOPN(
+        5, -- Number of top items to select
+        VALUES(Products[ProductName]), -- Distinct product names
+        [Total Product Sales] -- Measure to rank by (sales amount)
+    )
+RETURN
+    -- HASONEVALUE: Checks if there's only one product in current filter context
+    IF(
+        HASONEVALUE(Products[ProductName]),
+        IF(
+            VALUES(Products[ProductName]) IN TopProducts, -- Check if current product is in top 5
+            VALUES(Products[ProductName]), -- Show actual product name
+            "Other Products" -- Group non-top products
+        ),
+        "Multiple Products" -- Handle cases where multiple products are selected
+    )
+
+-- 6. Percentage of Parent Total
+-- Calculates what percentage each product contributes to its category total
+% of Category Total = 
+DIVIDE(
+    [Total Product Sales], -- Numerator: Current product's sales
+    CALCULATE(
+        [Total Product Sales],
+        ALL(Products[ProductName]) -- Remove product filter to get category total
+    )
+)
